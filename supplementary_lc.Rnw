@@ -1,0 +1,466 @@
+\documentclass{article}
+
+\usepackage[letterpaper, vmargin = 1in, hmargin=0.4in]{geometry}
+\usepackage{amsmath}
+\usepackage{mathrsfs}
+\begin{document}
+
+\title{Summary of Learning Curves}
+\author{Oleksandr Savenkov}
+\maketitle
+\section{Introduction}
+
+In this file we summarize the statistical work (R code) that is the basis of the "Mathematics of Learning Curves" manuscript.
+The longitudinal  data was collected from 38 participants of the study.
+All participants were grouped into 2 categories:
+
+\begin{itemize}
+\item MS Medical students (N = 20 MS)
+\item  RSFL Residents + Fellows (N = 6 RS + 12 FL)
+\end{itemize}
+
+
+The participants completed 234 cases in random order and
+received immediate feedback on each case.  The questions were grouped into "testlets'' of size 18, yielding
+13 testlets per learner.
+In these analyses we only compare two groups: "MS" and "RS + FL". All
+analysis was performed in R version 3.1.3 (https://www.r-project.org/).
+
+\section{Data Setup}
+
+In this section the list of packages used is provided. Code chunks to replicate analysis and graphics are also provided in each section.
+The file with the code to reproduce the analyses can be downloaded (**link is here**)
+
+<<echo=TRUE, warning=FALSE, message=FALSE>>=
+ rm(list = ls())
+ # List of the packages that are used for the analyses
+ library(ggplot2)
+ library(dplyr)
+ library(lme4)
+ library(reshape2)
+ library(TTR)
+ library(gridExtra)
+ library(data.table)
+ library(knitr)
+@
+
+<<echo = FALSE>>=
+ opts_chunk$set(echo=FALSE, warning = FALSE, fig.align='center') # global settings for the file
+ path = "/path to the root folder/" # this needs to be path to the root folder of the project
+@
+
+<<echo = TRUE>>=
+ setwd(path) # set path to project directory
+ data = read.csv(paste(path, "/data/main_dataset.csv", sep = ""))   # read data
+@
+
+<<echo = FALSE>>=
+sequence = rep(1:234, 46)
+ df = cbind(data, sequence)                                      # create data frame
+ temp = subset(df, select = c("PersonID", "Accurate", "sequence")) # subset from the data frame
+ wdf = dcast(temp, sequence ~ PersonID, value.var = "Accurate")  # wide data frame
+ ind = rep(1:13, rep(18,13)) # creates index for testlets
+ wdf = cbind(ind, wdf)
+ testlets = subset(wdf, select = -sequence)                      # drop sequence from the data set
+ testlets = aggregate(testlets[,2:47], by = list(testlets$ind), mean) # create testlets for each learner
+ mtest = melt(testlets, id = "Group.1")
+ colnames(mtest) = c("sequence", "learner", "score")
+ mtest$group = ifelse(grepl("AT", mtest$learner), "expert", ifelse(grepl("RA", mtest$learner), "expert", "learner"))
+ learners = subset(mtest, group == "learner")
+ learners$group = ifelse(grepl("MS", learners$learner), "MS", "RSFL")
+ learners$cluster = substr(learners$learner, 1, 2)
+ #source(paste(path,"/code/summarySE.R", sep = ""))
+
+ #summRSFL = summarySE(learners, measurevar="score", groupvars = c("group", "sequence"))
+ combined = aggregate(learners$score, list(time= learners$sequence,
+                                           group = learners$group), mean) # aggregates data to group average for each testlet
+ colnames(combined) = c("sequence", "group", "score")
+ MS = combined[combined$group == "MS",]                                   # data frame for medical students
+ RSFL = combined[combined$group == "RSFL",]                               # data frame for residents and fellows
+@
+
+\section{ Individual Level}
+
+In this section we model learning curves for individual by individual.
+
+\subsection{Individual Linear Regression}
+
+As an example consider  first the 12 Fellows group graphed using individual testlets:
+<<echo = TRUE>>=
+FL = learners[learners$cluster == "FL",]
+ggplot(FL, aes(x = sequence, y = score)) + geom_point(size = 1.5) +
+       stat_smooth(method = "lm", se = F) +
+       xlab("Number of Testlets Completed") + ylab("Accuracy") +
+       facet_wrap(~learner, nrow = 4)
+
+@
+
+\subsection{Individual Level Linear and Nonlinear Models}
+Fit for individual learners:
+
+MS019:
+<<echo = FALSE, fig.height=4>>=
+ms19 = testlets[,"MS019"]
+sequence = 1:13
+ms19 = data.frame(sequence, ms19)
+ms19$sequence = ms19$sequence*18
+colnames(ms19) = c("sequence", 'score')
+ggplot(ms19, aes(x = sequence, y = score)) + geom_point(aes(colour = 'Testlet'), size = 2) +
+         stat_smooth(aes(colour = "Linear"), method = "lm", se = F) +
+         xlab("Number of Cases Completed") + ylab("Accuracy") +
+         geom_smooth(aes(colour = "Power"), method = "nls", formula = 'y ~ a*x^b',
+         se = FALSE, method.args = list(start = c(a = 0.5, b = 0.1))) +
+         ggtitle("MS019") + annotate("text", label = "r^2 == 0.655", parse = TRUE, x = 160, y = 0.47) +
+         theme(text = element_text(size=14))  + scale_colour_manual(name = "", values=c("red","green","blue"))
+
+@
+
+MS002:
+<<fig.height=4, echo=FALSE>>=
+ms2 = testlets[,"MS002"]
+sequence = 1:13
+ms2 = data.frame(sequence, ms2)
+ms2$sequence = ms2$sequence*18
+colnames(ms2) = c("sequence", 'score')
+ggplot(ms2, aes(x = sequence, y = score)) + geom_point(aes(colour = 'Testlet'), size = 2) +
+        geom_smooth(aes(colour = "Linear"), method = "lm", se = F) +
+        xlab("Number of Cases Completed") + ylab("Accuracy") +
+        stat_smooth(aes(colour = "Power"), method = "nls", formula = 'y ~ a*x^b',
+        se = FALSE, method.args = list(start = c(a = 0.5, b = 0.1))) +
+        ggtitle("MS002") + annotate("text", label = "r^2 == 0.47", parse = TRUE, x = 160, y = 0.42) +
+        theme(text = element_text(size=14))  + scale_colour_manual(name = "", values=c("red","green","blue"))
+
+@
+
+
+MS008:
+<<fig.height = 4, echo = FALSE>>=
+ms8 = testlets[,"MS008"]
+ms8 = data.frame(sequence, ms8)
+ms8$sequence = ms8$sequence*18
+colnames(ms8) = c("sequence", 'score')
+ggplot(ms8, aes(x = sequence, y = score)) + geom_point(aes(colour = 'Testlet'), size = 2) +
+        stat_smooth(aes(colour = "Linear"), method = "lm", se = F) +
+        xlab("Number of Cases Completed") + ylab("Accuracy") +
+        stat_smooth(aes(colour = "Power"), method = "nls", formula = 'y ~ a*x^b',
+        se = FALSE, method.args = list(start = c(a = 0.5, b = 0.1))) +
+        ggtitle("MS008") + annotate("text", label = "r^2 == 0.21", parse = TRUE, x = 160, y = 0.45) +
+        theme(text = element_text(size=14))  + scale_colour_manual(name = "", values=c("red","green","blue"))
+@
+
+
+RS004:
+<<fig.height = 4, echo = FALSE>>=
+rs4 = testlets[,"RS004"]
+rs4 = data.frame(sequence, rs4)
+rs4$sequence = rs4$sequence*18
+colnames(rs4) = c("sequence", 'score')
+rsp4 = ggplot(rs4, aes(x = sequence, y = score)) + geom_point(aes(colour = 'Testlet'), size = 2) +
+        stat_smooth(aes(colour = "Linear"), method = "lm", se = F) +
+        xlab("Number of cases completed") + ylab("Accuracy") +
+        stat_smooth(aes(colour = "Power"), method = "nls", formula = 'y ~ a*x^b',
+        se = FALSE, method.args = list(start = c(a = 0.5, b = 0.1))) +
+        ggtitle("RS004") + annotate("text", label = "r^2 == 0.22", parse = TRUE, x = 160, y = 0.42) +
+        theme(text = element_text(size=14))  + scale_colour_manual(name = "", values=c("red","green","blue"))
+rsp4
+@
+
+
+\subsection{ Individual Logistic Regression Fit (Add table with a model fit)}
+
+We run logistic regression for a student MS002:
+<<echo=TRUE, warning=FALSE, message=FALSE, fig.height=4.5>>=
+stud_2 = subset(temp, PersonID == "MS002")
+logp = ggplot(stud_2, aes(x = sequence, y = Accurate)) + geom_point(size = 1.5) +
+               geom_smooth(method = 'glm', method.args = list(family = "binomial")) +
+               xlab("Number of Cases Completed") + ylab("Accuracy") +
+               ggtitle("Logistic Regression for MS002") + theme(text = element_text(size=14))
+
+ logp
+@
+
+Summary of the logistic regression fit:
+<<echo = TRUE>>=
+log_fit = glm(Accurate ~ sequence, data = stud_2, family = "binomial")
+summary(log_fit)
+@
+
+\section{Group Level}
+
+\subsection{Repeated measures ANOVA}
+
+If the repeated measurements are independent (for normally
+distributed responses) we could use standard analysis of variance (ANOVA)
+techniques to estimate the difference between two groups of participants.
+However, since our observations are not independent (the performance of a student on one testlet
+is correlated with their performance on the next one) we need to make additional
+assumptions about the correlation structure.
+We start analysis of the data with repeated measures ANOVA.
+Below is the plot and output for the model for two groups of learners.
+
+R code:
+<<echo = TRUE>>=
+learners_fact = learners
+learners_fact$sequence = factor(learners_fact$sequence)
+fit_rma <- aov(score ~ group*sequence + Error(learner), data = learners_fact)
+@
+
+Summary of fit:
+<<echo = FALSE>>=
+summary(fit_rma)
+@
+
+From the output we can see that the "group" effect is significant (in
+other words, the group difference is statistically significant). The
+"sequence" effect was also significant, suggesting that  the groups responses
+change over the repetitions. The interaction was not significant indicating, that, on
+average, the dependence of performance on repetition is not different between groups.
+
+<<echo=TRUE, warning=FALSE, message=FALSE, fig.height=4.5>>=
+ pd = position_dodge(.3) # move them .05 to the left and right to avoid overlap
+@
+
+\subsection{Linear function for groups:}
+<<fig.height=4.5, echo = TRUE>>=
+ clp = ggplot(combined, aes(x = sequence, y = score, linetype = group, shape = group, colour = group))+
+             geom_point(size = 1.5) +
+             stat_smooth(method = "lm", se = FALSE) +
+             xlab("Number of Testlets Completed") +
+             ylab("Accuracy") +
+             ggtitle("Linear function for two groups of learners") +
+             theme(text = element_text(size=12))
+ clp
+@
+
+While we do not expect the full learning curves to be linear, this can be a useful approximation for novice level learners.
+The linear model can help explain the learning of each of our learner groups.
+
+Medical students:
+<<echo = TRUE>>=
+ms_lm = lm(score ~ sequence, data = MS)
+summary(ms_lm)
+@
+For medical students, their y-intercept, indicating their skill prior
+to the practice sessions, was at an accuracy level of ~59$\%$ with a standard error of 2.5$\%$.  With each 18 cases of practice, their performance, as  indicated by the slope in the model, improved by 0.9$\%$.  The model explains 44$\%$ of the variance in medical student performance indicating that there a number of factors that are intruding on their
+learning from the system.
+
+Residents and fellows:
+
+<<echo = TRUE>>=
+rsfl_lm = lm(score ~ sequence, data = RSFL)
+summary(rsfl_lm)
+@
+
+For residents, the learning system seems to have been more effective.  Residents’ y-intercept, indicating their skill prior to the practice sessions, was at an accuracy level of ~62$\%$ with a standard error of 1.8$\%$.  With each 18 cases of practice, their performance, as  indicated by the slope in the model, improved by 1.8$\%$ (double the rate of the students).  The linear model explains 77$\%$ of the variance in resident and fellow performance.
+
+\subsubsection{Test for parameters difference}
+In this section we test if slopes and intercepts are not significantly different for the medical students compared with residents using a t-test on the parameters.
+The null hypothesis is
+$$
+H_0: \beta_{RSFL} = \beta_{MS}
+$$
+and the test statistics is
+$$
+t = \frac{b_{RSFL} - b_{MS}}{\sqrt{s^2_{b_{RSFL}} + s^2_{b_{MS}}}} \sim T(n_{RSFL} + n_{MS} - 4)
+$$
+Confidence interval for slopes difference:
+<<>>=
+options(digits = 3)
+sl_b1 = 0.015
+sl_b2 = 0.0094
+s_1 = 0.0023
+s_2 = 0.0031
+sl_ci = sl_b1 - sl_b2 + c(-qt(0.975, 22)*sqrt(s_1^2 + s_2^2), qt(0.975, 22)*sqrt(s_1^2 + s_2^2))
+sl_ci
+@
+
+Confidence interval for intercepts difference:
+<<>>=
+lm_int1 = 0.617
+lm_int2 = 0.59
+se_int1 = 0.019
+se_int2 = 0.025
+int_ci = lm_int1 - lm_int2 + c(-qt(0.975, 22)*sqrt(se_int1^2 + se_int2^2), qt(0.975, 22)*sqrt(se_int1^2 + se_int2^2))
+int_ci
+@
+
+Both intervals show that differences are not significant.
+
+\subsection{Nonlinear Models}
+
+\subsubsection{Power Models}
+An approach similar that used for the LMM approach can be applied to the (nonlinear) power function using a linear transformation.
+We consider the function of the form:
+$$
+Y = aX^b
+$$
+Applying log-transformation we would obtain the following model:
+$$
+\log(Y) = a + b\log(X)
+$$
+Thus, this is a linear model with log-scale for the response and for the covariates.
+
+<<echo = TRUE>>=
+pmm_fit1 = lmer(log(score) ~ group + log(sequence) + (sequence|learner), data = learners, REML = FALSE)
+pmm_fit2 = lmer(log(score) ~ group*log(sequence) + (sequence|learner), data = learners, REML = FALSE)
+anova(pmm_fit1, pmm_fit2)
+@
+
+Based on the model comparison we can claim that the difference between coefficients $b$ is not statistically significant, suggesting
+that the slopes are not significantly different between two groups. Same result as earlier.
+<<fig.height = 4.5, echo = TRUE>>=
+nlm_gp = ggplot(learners, aes(sequence, score, shape=group, color = group)) +
+               stat_summary(fun.data=mean_se, geom="pointrange", position = pd) +
+               stat_summary(aes(y=exp(fitted(pmm_fit1)), linetype=group), fun.y=mean, geom="line") +
+               ylab("Accuracy") + xlab("Number of Testlets Completed") +
+               ggtitle("Nonlinear(power function) fit")
+nlm_gp
+@
+
+<<fig.height = 4.5, echo = TRUE>>=
+pp = ggplot(combined, aes(x = sequence, y = score, colour = group, shape = group, linetype = group)) +
+            geom_point(size = 1.5) +
+            stat_smooth(method = "nls", formula = 'y ~ a*x^b', se = FALSE,
+                        method.args = list(start = c(a = 0.5, b = 0.1))) +
+            xlab("Number of Testlets Completed") + ylab("Accuracy") +
+            ggtitle("Power function for two groups of learners")
+pp
+@
+
+Result from power function fit:
+
+Medical students
+<<echo = TRUE>>=
+ms_p = nls(score ~ a*sequence^b, data = MS, start = list(a = 0.5, b = 0.1))
+summary(ms_p)
+@
+
+* Residents and fellows
+
+<<echo = TRUE>>=
+ rsfl_p = nls(score ~ a*sequence^b, data = RSFL, start = list(a = 0.5, b = 0.1))
+ summary(rsfl_p)
+@
+
+Confidence interval for the power model parameters (parameter "b" in the power model) difference:
+
+<<>>=
+b1 = 0.116
+b2 = 0.088
+se_b1 = 0.011
+se_b2 = 0.022
+b_ci = b1 - b2 + c(-qt(0.975, 22)*sqrt(se_b1^2 + se_b2^2), qt(0.975, 22)*sqrt(se_b1^2 + se_b2^2))
+b_ci
+@
+
+Linear model fit for the transformed data for medical students group:
+<<>>=
+lm_exp1 = lm(log(score) ~ log(sequence), data = MS)
+summary(lm_exp1)
+@
+
+Linear model fit for the transformed data for residents and fellows:
+<<>>=
+lm_exp2 = lm(log(score) ~ log(sequence), data = RSFL)
+summary(lm_exp2)
+@
+
+Confidence interval for the "intercepts" difference:
+<<>>=
+b1_lm = 0.118
+b2_lm = 0.093
+se_b1_lm = 0.01
+se_b2_lm = 0.02
+b_lm_ci = b1_lm -  b2_lm + c(-qt(0.975, 22)*sqrt(se_b1_lm^2 + se_b2_lm^2), qt(0.975, 22)*sqrt(se_b1_lm^2 + se_b2_lm^2))
+b_lm_ci
+@
+
+
+\subsubsection{Thurstone function:}
+In this next section we model the data using the nonlinear Thurstone function,
+where the phenomenon of learning converging to an asymptote is represented:
+$$
+        Y_{ij} = b + \frac{(a - b)X_{ij}}{c + X_{ij}} + \epsilon_{ij}
+$$
+where
+
+\begin{itemize}
+\item  a = asymptote
+\item  b = y-intercept
+\item  c = efficiency parameter
+\item  $X_{ij}$ = testlet number
+\item  $Y_{ij}$ = predicted accuracy
+\item  $\epsilon_{ij}$ = error term
+\end{itemize}
+In previous sections we made statistical inferences only
+about the differences between the two groups of learners. The Thurstone
+function allows us to make more specific inference about the difference between the asymptotes for each group.
+
+<<fig.height=4.5>>=
+ggplot(combined, aes(x = sequence, y = score, colour = group, shape = group, linetype = group))+
+             geom_point(size = 2) +
+       stat_smooth(method = "nls", formula = 'y ~ b + (a-b)*x/(c + x)',
+                         se = FALSE, method.args = list(start = list(a = 0.5, b = 0.3, c = 1))) +
+       geom_hline(yintercept = .837, linetype="dashed") + geom_hline(yintercept = .718, linetype="dashed") +
+       ggtitle("Thurstone function") + theme(text = element_text(size=14)) +
+       annotate("text", label = c("a == 0.837", "a == 0.718"), parse = TRUE, x = c(2, 2), y = c(0.85, 0.73)) +
+       xlab("Number of Testlets completed") + ylab("Accuracy") +
+       theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+@
+
+Result from fitted Thurstone function for two groups:
+
+Medical students
+
+<<echo = TRUE>>=
+ms_mod = nls(score ~ b + (a-b)*sequence/(c + sequence), data = MS, start = list(a = 0.5, b = 0.3, c = 1))
+summary(ms_mod)
+@
+
+Residents and fellows
+<<echo = TRUE>>=
+rsfl_mod = nls(score ~ b + (a-b)*sequence/(c + sequence), data = RSFL, start = list(a = 0.5, b = 0.3, c = 1))
+summary(rsfl_mod)
+@
+
+\subsubsection{Test for the asymptote difference:}
+In this section we test for the asymptotes difference in the Thurstone model.
+Confidence interval for the difference:
+<<>>=
+a1 = 0.837
+a2 = 0.718
+th_se1 = 0.032
+th_se2 = 0.033
+as_ci = a1 - a2 + c(-qt(0.975, 22)*sqrt(th_se1^2 + th_se2^2), qt(0.975, 22)*sqrt(th_se1^2 + th_se2^2))
+as_ci
+@
+The confidence interval suggests that the difference between asymptotes for two groups of learners is statistically significant, since it does not contain zero.
+
+\subsection{Models comparison}
+We use Akaike information criterion (AIC) to compare models performance for both groups (preferred model is that with lower AIC):
+
+Medical students:
+<<echo=FALSE>>=
+AIC(ms_lm, ms_p, ms_mod)
+@
+
+
+Residents and fellows:
+<<echo=FALSE>>=
+AIC(rsfl_lm, rsfl_p, rsfl_mod)
+@
+
+For both groups power fit and Thurston function are better fit than a linear model.
+
+
+\subsubsection{Summary}
+In summary, for modelling at the group level, the different methods of modelling have different applications.  In our examples, we see that:
+
+\begin{itemize}
+\item  Linear models provide an easy to grasp representation of how well learning advances with repetition and allows group comparison, at least at the novice level.
+\item  Repeated measures ANOVAs allow us to take into account the lack of independence of the repeated observations on each individual.
+\item  Non-linear regression, using Power functions, fits the theory of deliberate practice more accurately especially at the higher end of the   expertise curve.
+\item  The Thurstone function explicitly represents the asymptote.
+\end{itemize}
+
+\end{document}
